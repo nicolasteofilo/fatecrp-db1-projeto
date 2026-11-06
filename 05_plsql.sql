@@ -1,0 +1,62 @@
+-- 05_plsql.sql
+
+-- Function: saldo = entradas - saidas
+CREATE OR REPLACE FUNCTION FN_SALDO_PRODUTO (p_id_produto IN NUMBER)
+RETURN NUMBER
+IS
+  v_entradas NUMBER;
+  v_saidas   NUMBER;
+BEGIN
+  SELECT NVL(SUM(QUANTIDADE), 0) INTO v_entradas
+  FROM   MOVIMENTACAO
+  WHERE  ID_PRODUTO = p_id_produto AND TIPO = 'ENTRADA';
+
+  SELECT NVL(SUM(QUANTIDADE), 0) INTO v_saidas
+  FROM   MOVIMENTACAO
+  WHERE  ID_PRODUTO = p_id_produto AND TIPO = 'SAIDA';
+
+  RETURN v_entradas - v_saidas;
+END;
+/
+
+-- Trigger: atualiza o estoque a cada movimentacao
+CREATE OR REPLACE TRIGGER TRG_MOVIMENTACAO_ESTOQUE
+BEFORE INSERT ON MOVIMENTACAO
+FOR EACH ROW
+DECLARE
+  v_estoque NUMBER;
+BEGIN
+  IF :NEW.TIPO = 'ENTRADA' THEN
+    UPDATE PRODUTO
+    SET    ESTOQUE_ATUAL = ESTOQUE_ATUAL + :NEW.QUANTIDADE
+    WHERE  ID_PRODUTO = :NEW.ID_PRODUTO;
+  ELSIF :NEW.TIPO = 'SAIDA' THEN
+    SELECT ESTOQUE_ATUAL INTO v_estoque
+    FROM   PRODUTO
+    WHERE  ID_PRODUTO = :NEW.ID_PRODUTO;
+
+    IF v_estoque < :NEW.QUANTIDADE THEN
+      RAISE_APPLICATION_ERROR(-20001, 'Saldo insuficiente');
+    END IF;
+
+    UPDATE PRODUTO
+    SET    ESTOQUE_ATUAL = ESTOQUE_ATUAL - :NEW.QUANTIDADE
+    WHERE  ID_PRODUTO = :NEW.ID_PRODUTO;
+  END IF;
+END;
+/
+
+-- Procedure: registra uma movimentacao
+CREATE OR REPLACE PROCEDURE PRC_REGISTRAR_MOVIMENTACAO (
+  p_id_produto     IN NUMBER,
+  p_tipo           IN VARCHAR2,
+  p_quantidade     IN NUMBER,
+  p_id_fornecedor  IN NUMBER DEFAULT NULL,
+  p_preco_unitario IN NUMBER DEFAULT NULL
+)
+IS
+BEGIN
+  INSERT INTO MOVIMENTACAO (ID_PRODUTO, ID_FORNECEDOR, TIPO, QUANTIDADE, PRECO_UNITARIO)
+  VALUES (p_id_produto, p_id_fornecedor, p_tipo, p_quantidade, p_preco_unitario);
+END;
+/
